@@ -1,0 +1,258 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String   @id @default(cuid())
+  email       String   @unique
+  name        String
+  avatar      String?
+  provider    String   // oauth provider (google, github)
+  providerId  String   // oauth provider id
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relationships
+  ownedRooms  Room[]   @relation("RoomOwner")
+  roomMembers RoomMember[]
+  messages    Message[]
+  cursors     Cursor[]
+  ideConnections IDEConnection[]
+  deployments Deployment[]
+  gitOperations GitOperation[]
+  buildExecutions BuildExecution[]
+
+  @@map("users")
+}
+
+model Room {
+  id          String     @id @default(cuid())
+  name        String
+  description String?
+  inviteCode  String     @unique @default(cuid())
+  isPublic    Boolean    @default(false)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  
+  // Relationships
+  owner       User       @relation("RoomOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId     String
+  members     RoomMember[]
+  projects    Project[]
+  messages    Message[]
+  ideConnections IDEConnection[]
+
+  @@map("rooms")
+}
+
+model RoomMember {
+  id        String           @id @default(cuid())
+  role      RoomMemberRole   @default(MEMBER)
+  joinedAt  DateTime         @default(now())
+  
+  // Relationships
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  room      Room             @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId    String
+
+  @@unique([userId, roomId])
+  @@map("room_members")
+}
+
+model Project {
+  id          String      @id @default(cuid())
+  name        String
+  description String?
+  gitUrl      String?
+  mainBranch  String      @default("main")
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  
+  // Relationships
+  room        Room        @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId      String
+  files       ProjectFile[]
+  deployments Deployment[]
+  gitOperations GitOperation[]
+  buildExecutions BuildExecution[]
+
+  @@map("projects")
+}
+
+model ProjectFile {
+  id          String   @id @default(cuid())
+  name        String
+  path        String
+  content     String
+  language    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relationships
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId   String
+  cursors     Cursor[]
+
+  @@unique([projectId, path])
+  @@map("project_files")
+}
+
+model Message {
+  id        String      @id @default(cuid())
+  content   String
+  type      MessageType @default(TEXT)
+  createdAt DateTime    @default(now())
+  
+  // Relationships
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  room      Room        @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId    String
+
+  @@map("messages")
+}
+
+model Cursor {
+  id           String   @id @default(cuid())
+  position     Int      @default(0)
+  line         Int      @default(1)
+  column       Int      @default(1)
+  selection    String?  // JSON string for selection range
+  lastActivity DateTime @default(now())
+  
+  // Relationships
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId       String
+  file         ProjectFile  @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  fileId       String
+
+  @@unique([userId, fileId])
+  @@map("cursors")
+}
+
+enum RoomMemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum MessageType {
+  TEXT
+  CODE
+  SYSTEM
+}
+
+model IDEConnection {
+  id            String   @id @default(cuid())
+  ideType       String
+  version       String
+  workspacePath String
+  status        IDEConnectionStatus @default(CONNECTED)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relationships
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId        String
+  room          Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId        String
+
+  @@map("ide_connections")
+}
+
+model Deployment {
+  id         String           @id @default(cuid())
+  provider   DeploymentProvider
+  status     DeploymentStatus
+  url        String?
+  config     String           // JSON string
+  logs       String[]
+  error      String?
+  createdAt  DateTime         @default(now())
+  endedAt    DateTime?
+
+  // Relationships
+  project    Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId  String
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+
+  @@map("deployments")
+}
+
+model GitOperation {
+  id        String   @id @default(cuid())
+  operation String
+  command   String
+  result    String?
+  success   Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  // Relationships
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String
+
+  @@map("git_operations")
+}
+
+model BuildExecution {
+  id          String              @id @default(cuid())
+  command     String
+  status      BuildExecutionStatus
+  output      String?
+  error       String?
+  duration    Int?                // in milliseconds
+  createdAt   DateTime            @default(now())
+  completedAt DateTime?
+
+  // Relationships
+  project     Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId   String
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+
+  @@map("build_executions")
+}
+
+enum IDEConnectionStatus {
+  CONNECTED
+  DISCONNECTED
+  SYNCING
+}
+
+enum DeploymentProvider {
+  VERCEL
+  NETLIFY
+  DOCKER
+  GITHUB_PAGES
+  AWS
+  HEROKU
+}
+
+enum DeploymentStatus {
+  PENDING
+  BUILDING
+  DEPLOYING
+  SUCCESS
+  FAILED
+}
+
+enum BuildExecutionStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+  CANCELLED
+}
